@@ -1,27 +1,41 @@
-# SSD Test Log Analyzer — HTML 报告生成器
-from collections import defaultdict
+"""
+SSD Test Log Analyzer — HTML 报告生成器
+
+生成深色主题 HTML 报告，含 Chart.js 图表、异常列表、统计明细。
+"""
 from datetime import datetime
 
 
-def generate_report(result: dict, output_path: str):
-    html = _build_html(result)
+def generate_report(result: dict, output_path: str, config: dict | None = None):
+    """生成 HTML 报告
+
+    Args:
+        result: analyze() 返回的分析结果字典
+        output_path: 报告文件输出路径
+        config: 设备配置（config.get('device', {})），用于显示设备名
+    """
+    html = _build_html(result, config or {})
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"[OK] 报告已生成: {output_path}")
 
 
-def _build_html(r: dict) -> str:
+def _build_html(r: dict, device_cfg: dict) -> str:
     s = r["summary"]
     anomalies = r["anomalies"]
     sessions = r["sessions"]
     records = [rr for s in r.get("raw_sessions", sessions) for rr in s["records"]]
+
+    # 设备信息
+    dev_parts = [device_cfg.get("vendor", ""), device_cfg.get("name", "")]
+    device_label = " ".join(p for p in dev_parts if p).strip() or "SSD"
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SSD 测试日志分析报告</title>
+<title>{device_label} 测试日志分析报告</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -63,7 +77,7 @@ def _build_html(r: dict) -> str:
 <body>
 <div class="container">
 
-<h1>SSD 测试日志分析报告</h1>
+<h1>{device_label} 测试日志分析报告</h1>
 <p class="subtitle">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  {s['total_sessions']} 个会话 / {s['total_records']} 条记录</p>
 
 <div class="cards">
@@ -116,11 +130,11 @@ def _chart_js(records: list) -> str:
         vals = [r[key] for r in items]
         return round(_mean(vals), 1) if vals else 0
 
-    sr = [r for r in records if "Sequential Read" in r["test_item"]]
-    sw = [r for r in records if "Sequential Write" in r["test_item"]]
-    rr = [r for r in records if "Random Read IOPS" in r["test_item"]]
-    rw = [r for r in records if "Random Write IOPS" in r["test_item"]]
-    tp = [r for r in records if "Temperature" in r["test_item"]]
+    sr = [r for r in records if "Sequential Read" in r.get("test_item", "")]
+    sw = [r for r in records if "Sequential Write" in r.get("test_item", "")]
+    rr = [r for r in records if "Random Read IOPS" in r.get("test_item", "")]
+    rw = [r for r in records if "Random Write IOPS" in r.get("test_item", "")]
+    tp = [r for r in records if "Temperature" in r.get("test_item", "")]
 
     sr_spd, sw_spd = avg(sr, "speed_mbps"), avg(sw, "speed_mbps")
     rr_iops, rw_iops = avg(rr, "iops"), avg(rw, "iops")
@@ -128,48 +142,48 @@ def _chart_js(records: list) -> str:
     rr_lat, rw_lat = avg(rr, "avg_latency_us"), avg(rw, "avg_latency_us")
 
     return f"""
-new Chart(document.getElementById('chart-throughput'), {{
-  type: 'bar',
-  data: {{
-    labels: ['顺序读', '顺序写'],
-    datasets: [{{ data: [{sr_spd}, {sw_spd}], backgroundColor: ['#38bdf8', '#22c55e'], borderRadius: 6 }}]
-  }},
-  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
-}});
+	new Chart(document.getElementById('chart-throughput'), {{
+	  type: 'bar',
+	  data: {{
+	    labels: ['顺序读', '顺序写'],
+	    datasets: [{{ data: [{sr_spd}, {sw_spd}], backgroundColor: ['#38bdf8', '#22c55e'], borderRadius: 6 }}]
+	  }},
+	  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
+	}});
 
-new Chart(document.getElementById('chart-iops'), {{
-  type: 'bar',
-  data: {{
-    labels: ['随机读', '随机写'],
-    datasets: [{{ data: [{rr_iops}, {rw_iops}], backgroundColor: ['#a78bfa', '#f472b6'], borderRadius: 6 }}]
-  }},
-  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
-}});
+	new Chart(document.getElementById('chart-iops'), {{
+	  type: 'bar',
+	  data: {{
+	    labels: ['随机读', '随机写'],
+	    datasets: [{{ data: [{rr_iops}, {rw_iops}], backgroundColor: ['#a78bfa', '#f472b6'], borderRadius: 6 }}]
+	  }},
+	  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
+	}});
 
-new Chart(document.getElementById('chart-temp'), {{
-  type: 'bar',
-  data: {{
-    labels: ['最高温(平均)'],
-    datasets: [{{ data: [{tp_max}], backgroundColor: ['#f59e0b'], borderRadius: 6 }}]
-  }},
-  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }} }}
-}});
+	new Chart(document.getElementById('chart-temp'), {{
+	  type: 'bar',
+	  data: {{
+	    labels: ['最高温(平均)'],
+	    datasets: [{{ data: [{tp_max}], backgroundColor: ['#f59e0b'], borderRadius: 6 }}]
+	  }},
+	  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }} }}
+	}});
 
-new Chart(document.getElementById('chart-latency'), {{
-  type: 'bar',
-  data: {{
-    labels: ['随机读', '随机写'],
-    datasets: [{{ data: [{rr_lat}, {rw_lat}], backgroundColor: ['#818cf8', '#e879f9'], borderRadius: 6 }}]
-  }},
-  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
-}});
-"""
+	new Chart(document.getElementById('chart-latency'), {{
+	  type: 'bar',
+	  data: {{
+	    labels: ['随机读', '随机写'],
+	    datasets: [{{ data: [{rr_lat}, {rw_lat}], backgroundColor: ['#818cf8', '#e879f9'], borderRadius: 6 }}]
+	  }},
+	  options: {{ responsive: true, plugins: {{ legend: {{ display: false }} }}, scales: {{ y: {{ beginAtZero: false }} }} }}
+	}});
+	"""
 
 
 def _anomaly_html(anomalies):
     items = "".join(
         f'<li>Session #{a["session"]} — <strong>{a["test_item"]}</strong> '
-        f'(<span class="badge {a["status"]}">{a["status"]}</span>) — {a["rule"]}</li>'
+        f'(<span class="badge {a["status"]}">{a["status"]}</span>) — {a.get("label", a["rule"])}</li>'
         for a in anomalies
     )
     return f'<ul class="anomaly-list">{items}</ul>'

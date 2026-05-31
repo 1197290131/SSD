@@ -1,0 +1,101 @@
+# SSD Test Log Analyzer — 配置文件
+# ================================
+# 修改此文件可适配不同主控方案的日志格式和异常阈值
+# 使用方式: python main.py <日志> -c config_smi.yaml
+
+device:
+  name: "SMI SSD"
+  vendor: "Silicon Motion"
+  controller: "SMI"
+
+parsing:
+  # 会话头正则 — 提取会话编号、型号、固件版本、序列号
+  session_header: "Session #(\\d+) Started\n.*?Model: (\\S+)\n.*?FW Version: (\\S+)\n.*?Serial Number: (\\S+)"
+  # 测试项行正则
+  test_item: "\\[TEST\\] Test Item: (.+)"
+  # 会话汇总行正则
+  summary: "Elapsed: (\\d+)s  Overall: (\\w+)"
+
+  # 各类测试结果的正则与字段映射
+  result_types:
+    throughput:
+      regex: "Speed=([\\d.]+) MB/s\\s+Temperature=([\\d.]+) C\\s+Status=(\\w+)"
+      fields: [speed_mbps, temperature_c, status]
+      field_types: [float, float, str]
+    iops:
+      regex: "IOPS=(\\d+)\\s+AvgLatency=([\\d.]+) us\\s+Status=(\\w+)"
+      fields: [iops, avg_latency_us, status]
+      field_types: [int, float, str]
+    temperature:
+      regex: "MaxTemp=([\\d.]+) C\\s+AvgTemp=([\\d.]+) C\\s+Status=(\\w+)"
+      fields: [max_temp_c, avg_temp_c, status]
+      field_types: [float, float, str]
+    smart:
+      regex: "ReallocatedSectors=(\\d+)\\s+PendingSectors=(\\d+)\\s+WearLevel=(\\d+)%\\s+RawReadErrors=(\\d+)\\s+Status=(\\w+)"
+      fields: [reallocated_sectors, pending_sectors, wear_level_pct, raw_read_errors, status]
+      field_types: [int, int, int, int, str]
+    power:
+      regex: "ActivePower=([\\d.]+) W\\s+IdlePower=([\\d.]+) W\\s+Status=(\\w+)"
+      fields: [active_power_w, idle_power_w, status]
+      field_types: [float, float, str]
+
+anomaly_rules:
+  - name: seq_read_slow
+    label: "顺序读性能不足"
+    enabled: true
+    record_type: throughput
+    conditions:
+      - { field: speed_mbps, operator: "<", value: 3000 }
+      - { field: test_item, operator: contains, value: "Read" }
+
+  - name: seq_write_slow
+    label: "顺序写性能不足"
+    enabled: true
+    record_type: throughput
+    conditions:
+      - { field: speed_mbps, operator: "<", value: 2600 }
+      - { field: test_item, operator: contains, value: "Write" }
+
+  - name: low_random_read_iops
+    label: "随机读IOPS偏低"
+    enabled: true
+    record_type: iops
+    conditions:
+      - { field: iops, operator: "<", value: 350000 }
+      - { field: test_item, operator: contains, value: "Read" }
+
+  - name: low_random_write_iops
+    label: "随机写IOPS偏低"
+    enabled: true
+    record_type: iops
+    conditions:
+      - { field: iops, operator: "<", value: 300000 }
+      - { field: test_item, operator: contains, value: "Write" }
+
+  - name: high_latency
+    label: "延迟过高"
+    enabled: true
+    record_type: iops
+    conditions:
+      - { field: avg_latency_us, operator: ">", value: 200 }
+
+  - name: overheating
+    label: "温度超标"
+    enabled: true
+    record_type: temperature
+    conditions:
+      - { field: max_temp_c, operator: ">", value: 80 }
+
+  - name: excessive_reallocated
+    label: "坏块过多"
+    enabled: true
+    record_type: smart
+    conditions:
+      - { field: reallocated_sectors, operator: ">", value: 20 }
+
+  - name: pending_sectors_warn
+    label: "待重映射扇区过多"
+    enabled: true
+    record_type: smart
+    conditions:
+      - { field: pending_sectors, operator: ">", value: 5 }
