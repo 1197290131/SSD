@@ -97,4 +97,4 @@ generate_sample_log.py  样本生成  模拟 SMI 产测日志格式
 
 ## 许可证
 
-MIT
+GUST
